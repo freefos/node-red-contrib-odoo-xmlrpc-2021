@@ -7,8 +7,8 @@ function isUInt(v){
 }
 
 module.exports = function (RED) {
-    var handle_error = function(err, node) {
-        node.log(err.body);
+    const handle_error = function(err, node) {
+        node.log(err.body || err.message);
         node.status({fill: "red", shape: "dot", text: err.message});
         node.error(err.message);
     };
@@ -16,55 +16,55 @@ module.exports = function (RED) {
     function OdooXMLRPCSearchNode(config) {
         RED.nodes.createNode(this, config);
         this.host = RED.nodes.getNode(config.host);
-        var node = this;
+        const node = this;
 
-        node.on('input', function (msg) {
+        node.on('input', async function (msg) {
             node.status({});
-            this.host.connect(function(err, odoo_inst) {
-                if (err) {
-                    return handle_error(err, node);
+
+            try {
+                const odoo_inst = await node.host.connect();
+
+                const offset = msg.offset;
+                if (isDefinedValue(offset) && !isUInt(offset)) {
+                    throw new Error('When offset is provided, it must be a positive integer number');
                 }
 
-                var offset = msg.offset;
-                if (isDefinedValue(offset) && !isUInt(offset)){
-                  return handle_error(new Error('When offset is provided, it must be a positive integer number'), node);
-                }
-                var limit = msg.limit;
-                if (isDefinedValue(limit) && !isUInt(limit)){
-                  return handle_error(new Error('When limit is provided, it must be a positive integer number'), node);
+                const limit = msg.limit;
+                if (isDefinedValue(limit) && !isUInt(limit)) {
+                    throw new Error('When limit is provided, it must be a positive integer number');
                 }
 
-                var inParams;
-                if (msg.filters){
-                  if (!Array.isArray(msg.filters)){
-                    return handle_error(new Error('When filters is provided, it must be an array'), node);
-                  }
-                  inParams = msg.filters;
+                let filters = [];
+                if (msg.filters) {
+                    if (!Array.isArray(msg.filters)) {
+                        throw new Error('When filters is provided, it must be an array');
+                    }
+                    filters = msg.filters;
                 } else {
-                  inParams = [];
-                  inParams.push([]);
+                    filters.push([]);
                 }
-                var params = [];
-                params.push(inParams);
-                //node.log('Searching for model "' + config.model + '"...');
-                odoo_inst.execute_kw(config.model, 'search', params, function (err, value) {
-                    if (err) {
-                        return handle_error(err, node);
-                    }
 
-                    if (isDefinedValue(offset)){
-                      //Jump the x first elements (where x has the value of the "offset" variable)
-                      value = value.slice(offset);
-                    }
-                    if (isDefinedValue(limit)){
-                      //Limit the length of the value array to x elements (where x has the value of the "limit" variable)
-                      value = value.slice(0, limit);
-                    }
-                    msg.payload = value;
-                    node.send(msg);
-                });
-            });
+                const args = [filters];
+
+                node.log(`Searching for model "${config.model}" with filters: ${JSON.stringify(filters)}`);
+
+                let result = await odoo_inst.execute_kw(config.model, 'search', args);
+
+                if (isDefinedValue(offset)) {
+                    result = result.slice(offset);
+                }
+                if (isDefinedValue(limit)) {
+                    result = result.slice(0, limit);
+                }
+
+                msg.payload = result;
+                node.status({ fill: "green", shape: "dot", text: `Found ${result.length} record(s)` });
+                node.send(msg);
+            } catch (err) {
+                handle_error(err, node);
+            }
         });
     }
+
     RED.nodes.registerType("odoo-xmlrpc-search", OdooXMLRPCSearchNode);
 };
