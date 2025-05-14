@@ -1,33 +1,39 @@
 module.exports = function (RED) {
-    var handle_error = function(err, node) {
-        node.log(err.body);
-        node.status({fill: "red", shape: "dot", text: err.message});
+    const handle_error = function (err, node) {
+        node.log(err.body || err.message);
+        node.status({ fill: "red", shape: "dot", text: err.message });
         node.error(err.message);
     };
 
     function OdooXMLRPCUnlinkNode(config) {
         RED.nodes.createNode(this, config);
         this.host = RED.nodes.getNode(config.host);
-        var node = this;
+        const node = this;
 
-        node.on('input', function (msg) {
+        node.on('input', async function (msg) {
             node.status({});
-            this.host.connect(function(err, odoo_inst) {
-                if (err) {
-                    return handle_error(err, node);
+
+            try {
+                const odoo_inst = await node.host.connect();
+
+                const ids = msg.payload;
+
+                if (!Array.isArray(ids)) {
+                    throw new Error("msg.payload must be an array of record IDs to delete");
                 }
 
-                var ids = msg.payload;
-                //node.log('Deleting ' + ids.length + ' records for model "' + config.model + '"...');
-                odoo_inst.execute_kw(config.model, 'unlink', [[ids]], function (err, value) {
-                    if (err) {
-                        return handle_error(err, node);
-                    }
-                    msg.payload = value;
-                    node.send(msg);
-                });
-            });
+                node.log(`Deleting ${ids.length} record(s) from model "${config.model}"...`);
+
+                const result = await odoo_inst.execute_kw(config.model, 'unlink', [[ids]]);
+
+                msg.payload = result;
+                node.status({ fill: "green", shape: "dot", text: "Records deleted" });
+                node.send(msg);
+            } catch (err) {
+                handle_error(err, node);
+            }
         });
     }
+
     RED.nodes.registerType("odoo-xmlrpc-unlink", OdooXMLRPCUnlinkNode);
 };
