@@ -1,45 +1,47 @@
 module.exports = function (RED) {
-    var handle_error = function(err, node) {
-        node.log(err.body);
-        node.status({fill: "red", shape: "dot", text: err.message});
-        node.error(err.message);
-    };
+  const handle_error = function (err, node) {
+    node.log(err.body || err.message);
+    node.status({ fill: "red", shape: "dot", text: err.message });
+    node.error(err.message);
+  };
 
-    function OdooXMLRPCUpdateNode(config) {
-        RED.nodes.createNode(this, config);
-        this.host = RED.nodes.getNode(config.host);
-        var node = this;
+  function OdooXMLRPCUpdateNode(config) {
+    RED.nodes.createNode(this, config);
+    this.host = RED.nodes.getNode(config.host);
+    const node = this;
 
-        node.on('input', function (msg) {
-            node.status({});
-            this.host.connect(function(err, odoo_inst) {
-                if (err) {
-                    return handle_error(err, node);
-                }
+    node.on('input', async function (msg) {
+      node.status({});
 
-                var inParams;
-                if (msg.payload){
-                  if (!Array.isArray(msg.payload)){
-                    return handle_error(new Error('when defined, msg.payload must be an array'), node);
-                  }
-                  inParams = msg.payload
-                } else {
-                  inParams = [];
-                  inParams.push([]);
-                }
+      try {
+        const odoo_inst = await node.host.connect();
 
-                var params = [];
-                params.push(inParams);
-                //node.log('Creating object for model "' + config.model + '"...');
-                odoo_inst.execute_kw(config.model, 'write', params, function (err, value) {
-                    if (err) {
-                        return handle_error(err, node);
-                    }
-                    msg.payload = value;
-                    node.send(msg);
-                });
-            });
-        });
-    }
-    RED.nodes.registerType("odoo-xmlrpc-update", OdooXMLRPCUpdateNode);
+        let inParams;
+        if (msg.payload) {
+          if (!Array.isArray(msg.payload)) {
+            throw new Error('When defined, msg.payload must be an array: [ids, {field: value}]');
+          }
+          inParams = msg.payload;
+        } else {
+          throw new Error('msg.payload is required and must be an array: [ids, {field: value}]');
+        }
+
+        const model = config.model;
+        const args = [inParams];
+
+        node.log(`Updating record(s) in model "${model}" with args: ${JSON.stringify(args)}`);
+
+        const result = await odoo_inst.execute_kw(model, 'write', args);
+
+        msg.payload = result;
+        node.status({ fill: "green", shape: "dot", text: "Record updated" });
+        node.send(msg);
+
+      } catch (err) {
+        handle_error(err, node);
+      }
+    });
+  }
+
+  RED.nodes.registerType("odoo-xmlrpc-update", OdooXMLRPCUpdateNode);
 };
