@@ -6,18 +6,25 @@ module.exports = function (RED) {
         this.username = n.username;
         this.password = n.password;
 
-        this.connect = function(callback) {
-            var Odoo = require('odoo-xmlrpc');
-            var odoo_inst = new Odoo({
+        this.connect = async function () {
+            const Odoo = require('odoo-xmlrpc');
+            const odoo_inst = new Odoo({
                 url: this.url,
                 db: this.db,
                 username: this.username,
                 password: this.password,
             });
-            odoo_inst.connect(function (err) {
-                return callback(err, odoo_inst);
+
+            return new Promise((resolve, reject) => {
+                odoo_inst.connect(function (err) {
+                    if (err) {
+                        return reject(err);
+                    }
+                    return resolve(odoo_inst);
+                });
             });
         };
     }
+
     RED.nodes.registerType("odoo-xmlrpc-config", OdooXMLRPCConfigNode);
-}
+};
